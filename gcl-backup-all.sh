@@ -46,7 +46,7 @@ echo "==> Получение количества страниц с репози
 number_of_pages=$(curl -m 10 -s --head --header "PRIVATE-TOKEN: $GL_TOKEN" "$GL_URL" |
   grep -i x-total-pages | awk '{print $2}' | tr -d '\r\n')
 
-number_of_pages=2
+# number_of_pages=10
 
 if [[ -z "$number_of_pages" ]]; then
   echo "Не удалось получить данные с {$GL_DOMAIN}. Команда завершается."
@@ -65,7 +65,58 @@ for page in $(seq 1 "$number_of_pages"); do
 done
 echo -ne "\n"
 
+# for repo in "${repo_urls[@]}"; do
+#   echo "$repo"
+#   git clone $repo
+#   echo -ne "Клонирование репозитория: [${repo}}]\r"
+# done
+# echo -ne "\n"
+
+clone-mirror() {
+  local url
+  url=$1
+  local repo_name
+  repo_name=$(basename "$url" .git)
+
+  git clone --mirror "$url" "./$repo_name/.git"
+  (
+    cd "$repo_name" || exit 1
+    git config --bool core.bare false
+    git reset --hard
+  )
+}
+
+
+mkdir ./target
+cd ./target || exit 1
+# Инициализация счетчика
+counter=1
+total=${#repo_urls[@]}
+
 for repo in "${repo_urls[@]}"; do
-  echo "$repo"
-  git clone $repo
+ echo -ne "\r\033[K"
+ echo -ne "Клонирование репозитория: [$counter/$total] $repo\r"
+ # Используем перенаправление вывода для скрытия стандартного вывода git clone
+ # И показываем только ошибки, перенаправляя stderr в stdout
+#  git clone "$repo" >/dev/null 2>&1
+# Клонирование выбранного репозитория
+if [[ "$USE_CLONE_ALL_BRANCHES" == "--all" ]]; then
+  clone-mirror "$repo" >/dev/null 2>&1
+else
+  git clone "$repo" >/dev/null 2>&1
+fi
+ # Проверяем статус выполнения команды
+ if [ $? -ne 0 ]; then
+    echo "Ошибка при клонировании репозитория: $repo"
+ fi
+ # Обновляем счетчик
+ ((counter++))
+#  echo -ne "                                                                                                                    \r"
 done
+
+echo -ne "\n"
+
+cd ..
+
+echo "=> Клонирование $total проектов завершено"
+exit 0
