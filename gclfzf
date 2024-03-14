@@ -69,8 +69,17 @@ selected_repo=$(for repo in "${repo_urls[@]}"; do echo "$repo" |
   sed 's/|/ -> /'; done |
   fzf --preview 'echo {}' --preview-window=up:1)
 
+border()
+{
+    title="| $1 |"
+    edge=$(echo "$title" | sed 's/./-/g')
+    echo "$edge"
+    echo "$title"
+    echo "$edge"
+}
+
 # Вывод выбранного репозитория
-echo "Выбранный репозиторий: $selected_repo"
+border "Выбранный репозиторий: $selected_repo"
 
 repo_name=$(echo "$selected_repo" | awk -F' -> ' '{print $1}')
 repo_url=$(echo "$selected_repo" | awk -F' -> ' '{print $2}')
@@ -103,5 +112,5 @@ else
   git clone "$repo_url"
 fi
 
-echo "=> Клонирование завершено"
+echo "==> Клонирование завершено"
 exit 0
