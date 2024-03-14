@@ -3,6 +3,18 @@
 # Переменная наличия флага --all
 USE_CLONE_ALL_BRANCHES="$1"
 
+
+# Путь к директории для кэша
+CACHE_DIR="/tmp/gclfzf_cache"
+# Создаем директорию для кэша, если она не существует
+mkdir -p "$CACHE_DIR"
+
+# Время жизни кэша в минутах
+CACHE_LIFETIME=60
+# Очистка старых файлов кэша
+echo "[X] Очистка старых файлов кэша..."
+find "$CACHE_DIR" -type f -mmin +"$CACHE_LIFETIME" -exec rm -f {} \;
+
 # Функция для проверки и установки переменных окружения
 setup_env_vars() {
   local var_name
@@ -50,15 +62,24 @@ if [[ -z "$number_of_pages" ]]; then
   echo "Не удалось получить данные с {$GL_DOMAIN}. Команда завершается."
   exit 1
 fi
+
 # Инициализация массива для хранения URL-ов репозиториев
 declare -a repo_urls
-
 # Заполнение массива URL-ами репозиториев
 for page in $(seq 1 "$number_of_pages"); do
-  # shellcheck disable=SC2207
-  repo_urls+=($(curl -m 30 -s --header "PRIVATE-TOKEN: $GL_TOKEN" "$GL_URL?page=$page" |
-    jq -r '.[] | "\(.name)|\(.ssh_url_to_repo)"' |
-    sed 's/ /_/g'))
+  # Имя файла для кэша, используя хэш URL
+  cache_file="$CACHE_DIR/$(echo -n "$GL_URL?page=$page" | md5sum | cut -d' ' -f1)"
+  # Проверяем, существует ли файл кэша
+  if [ -f "$cache_file" ]; then
+    response=$(cat "$cache_file")
+  else
+    response=$(curl -m 30 -s --header "PRIVATE-TOKEN: $GL_TOKEN" "$GL_URL?page=$page")
+    echo $response > "$cache_file"
+  fi
+
+  processed_response=$(echo "$response" | jq -r '.[] | "\(.name)|\(.ssh_url_to_repo)"' | sed 's/ /_/g')
+  repo_urls+=("$processed_response")
+
   # Вывод прогресс-бара
   echo -ne "Заполнение массива: [${page}/${number_of_pages}]\r"
 done
@@ -69,13 +90,12 @@ selected_repo=$(for repo in "${repo_urls[@]}"; do echo "$repo" |
   sed 's/|/ -> /'; done |
   fzf --preview 'echo {}' --preview-window=up:1)
 
-border()
-{
-    title="| $1 |"
-    edge=$(echo "$title" | sed 's/./-/g')
-    echo "$edge"
-    echo "$title"
-    echo "$edge"
+border() {
+  title="| $1 |"
+  edge=$(echo "$title" | sed 's/./-/g')
+  echo "$edge"
+  echo "$title"
+  echo "$edge"
 }
 
 # Вывод выбранного репозитория
