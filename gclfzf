@@ -13,7 +13,12 @@ mkdir -p "$CACHE_DIR"
 CACHE_LIFETIME=3600
 # Очистка старых файлов кэша
 echo "[X] Очистка старых файлов кэша..."
-find "$CACHE_DIR" -type f -mmin +"$CACHE_LIFETIME" -exec rm -f {} \;
+find "$CACHE_DIR" -type f -mmin +"$CACHE_LIFETIME" -exec rm -f {} \; &
+
+
+# Файл для кэша количества страниц
+PAGES_CACHE_FILE="$CACHE_DIR/pages_count.cache"
+
 
 # Функция для проверки и установки переменных окружения
 setup_env_vars() {
@@ -54,31 +59,46 @@ check_command "fzf"
 # Вызов функции для проверки наличия curl
 check_command "curl"
 
-echo "==> Получение количества страниц с репозиториями GitLab..."
-number_of_pages=$(curl -m 10 -s --head --header "PRIVATE-TOKEN: $GL_TOKEN" "$GL_URL?per_page=100" |
-  grep -i x-total-pages | awk '{print $2}' | tr -d '\r\n')
+# Функция для получения количества страниц и записи в кэш
+get_number_of_pages() {
+  echo "==> Получение количества страниц с репозиториями GitLab..."
+  local number_of_pages
+  number_of_pages=$(curl -m 10 -s --head --header "PRIVATE-TOKEN: $GL_TOKEN" "$GL_URL?per_page=100" |
+    grep -i x-total-pages | awk '{print $2}' | tr -d '\r\n')
 
-if [[ -z "$number_of_pages" ]]; then
-  echo "Не удалось получить данные с {$GL_DOMAIN}. Команда завершается."
-  exit 1
+  if [[ -z "$number_of_pages" ]]; then
+    echo "Не удалось получить данные с ${GL_DOMAIN}. Команда завершается."
+    exit 1
+  fi
+  # Сохраняем количество страниц в кэш
+  echo "$number_of_pages" > "$PAGES_CACHE_FILE"
+  echo "$number_of_pages"
+}
+
+# Получение количества страниц из кэша или с сервера
+if [ -f "$PAGES_CACHE_FILE" ]; then
+  # Если файл кэша существует и актуален, используем его
+  number_of_pages=$(<"$PAGES_CACHE_FILE")
+else
+  # Иначе получаем количество страниц и кэшируем
+  number_of_pages=$(get_number_of_pages)
 fi
 
 # Инициализация массива для хранения URL-ов репозиториев
 declare -a repo_urls
 # Заполнение массива URL-ами репозиториев
 for page in $(seq 1 "$number_of_pages"); do
-  # Имя файла для кэша, используя хэш URL
   cache_file="$CACHE_DIR/$(echo -n "$GL_URL?page=$page&per_page=100" | md5sum | cut -d' ' -f1)"
-  # Проверяем, существует ли файл кэша
   if [ -f "$cache_file" ]; then
-    response=$(cat "$cache_file")
+    # Если файл кэша существует, читаем его напрямую
+    mapfile -t page_urls < "$cache_file"
   else
+    # Получение данных с сервера и сохранение в кэш
     response=$(curl -m 30 -s --header "PRIVATE-TOKEN: $GL_TOKEN" "$GL_URL?per_page=100&page=$page")
-    echo $response > "$cache_file"
+    mapfile -t page_urls < <(echo "$response" | jq -r '.[] | "\(.name)|\(.ssh_url_to_repo)"' | sed 's/ /_/g')
+    printf "%s\n" "${page_urls[@]}" > "$cache_file"
   fi
-
-  processed_response=$(echo "$response" | jq -r '.[] | "\(.name)|\(.ssh_url_to_repo)"' | sed 's/ /_/g')
-  repo_urls+=("$processed_response")
+  repo_urls+=("${page_urls[@]}")
 
   # Вывод прогресс-бара
   echo -ne "Заполнение массива: [${page}/${number_of_pages}]\r"
