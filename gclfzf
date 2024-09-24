@@ -10,7 +10,7 @@ CACHE_DIR="/tmp/gclfzf_cache"
 mkdir -p "$CACHE_DIR"
 
 # Время жизни кэша в минутах
-CACHE_LIFETIME=60
+CACHE_LIFETIME=3600
 # Очистка старых файлов кэша
 echo "[X] Очистка старых файлов кэша..."
 find "$CACHE_DIR" -type f -mmin +"$CACHE_LIFETIME" -exec rm -f {} \;
@@ -55,7 +55,7 @@ check_command "fzf"
 check_command "curl"
 
 echo "==> Получение количества страниц с репозиториями GitLab..."
-number_of_pages=$(curl -m 10 -s --head --header "PRIVATE-TOKEN: $GL_TOKEN" "$GL_URL" |
+number_of_pages=$(curl -m 10 -s --head --header "PRIVATE-TOKEN: $GL_TOKEN" "$GL_URL?per_page=100" |
   grep -i x-total-pages | awk '{print $2}' | tr -d '\r\n')
 
 if [[ -z "$number_of_pages" ]]; then
@@ -68,12 +68,12 @@ declare -a repo_urls
 # Заполнение массива URL-ами репозиториев
 for page in $(seq 1 "$number_of_pages"); do
   # Имя файла для кэша, используя хэш URL
-  cache_file="$CACHE_DIR/$(echo -n "$GL_URL?page=$page" | md5sum | cut -d' ' -f1)"
+  cache_file="$CACHE_DIR/$(echo -n "$GL_URL?page=$page&per_page=100" | md5sum | cut -d' ' -f1)"
   # Проверяем, существует ли файл кэша
   if [ -f "$cache_file" ]; then
     response=$(cat "$cache_file")
   else
-    response=$(curl -m 30 -s --header "PRIVATE-TOKEN: $GL_TOKEN" "$GL_URL?page=$page")
+    response=$(curl -m 30 -s --header "PRIVATE-TOKEN: $GL_TOKEN" "$GL_URL?per_page=100&page=$page")
     echo $response > "$cache_file"
   fi
 
